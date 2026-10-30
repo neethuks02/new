@@ -1851,11 +1851,12 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                   icon: const Icon(Icons.refresh_rounded, color: AppColors.textPrimary),
                   onPressed: _fetchSheetData,
                 ),
-                IconButton(
-                  tooltip: 'Audit / Edit History',
-                  icon: const Icon(Icons.history_rounded, color: AppColors.textPrimary),
-                  onPressed: () => _showEditHistoryDialog(),
-                ),
+                if (_isManager)
+                  IconButton(
+                    tooltip: 'Audit / Edit History',
+                    icon: const Icon(Icons.history_rounded, color: AppColors.textPrimary),
+                    onPressed: () => _showEditHistoryDialog(),
+                  ),
                 if (_isAddingInlineRow || _editingRowId != null) ...[
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
@@ -2031,11 +2032,12 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                   icon: const Icon(Icons.refresh_rounded, color: AppColors.textPrimary, size: 22),
                   onPressed: _fetchSheetData,
                 ),
-                IconButton(
-                  tooltip: 'Edit History',
-                  icon: const Icon(Icons.history_rounded, color: AppColors.textPrimary, size: 22),
-                  onPressed: () => _showEditHistoryDialog(),
-                ),
+                if (_isManager)
+                  IconButton(
+                    tooltip: 'Edit History',
+                    icon: const Icon(Icons.history_rounded, color: AppColors.textPrimary, size: 22),
+                    onPressed: () => _showEditHistoryDialog(),
+                  ),
                 if (_isManager || _isExecutive)
                   PopupMenuButton<String>(
                     icon: const Icon(Icons.more_vert_rounded, color: AppColors.textPrimary, size: 22),
@@ -2046,16 +2048,17 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                       if (val == 'assign_staff') _showAssignToStaffDialog();
                     },
                     itemBuilder: (ctx) => [
-                      const PopupMenuItem(
-                        value: 'history',
-                        child: Row(
-                          children: [
-                            Icon(Icons.history_rounded, size: 18, color: AppColors.primary),
-                            SizedBox(width: 10),
-                            Text('Audit / History', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                          ],
+                      if (_isManager)
+                        const PopupMenuItem(
+                          value: 'history',
+                          child: Row(
+                            children: [
+                              Icon(Icons.history_rounded, size: 18, color: AppColors.primary),
+                              SizedBox(width: 10),
+                              Text('Audit / History', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                            ],
+                          ),
                         ),
-                      ),
                       if (_isManager) ...[
                         const PopupMenuItem(
                           value: 'add_lead',
@@ -2843,26 +2846,28 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      InkWell(
-                        onTap: () => _showEditHistoryDialog(rowId: row.id, leadName: row.leadName),
-                        borderRadius: BorderRadius.circular(6),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF1F5F9),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.history_rounded, size: 13, color: Color(0xFF64748B)),
-                              SizedBox(width: 4),
-                              Text('History', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF64748B))),
-                            ],
+                      if (_isManager) ...[
+                        InkWell(
+                          onTap: () => _showEditHistoryDialog(rowId: row.id, leadName: row.leadName),
+                          borderRadius: BorderRadius.circular(6),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.history_rounded, size: 13, color: Color(0xFF64748B)),
+                                SizedBox(width: 4),
+                                Text('History', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Color(0xFF64748B))),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                      ],
                       const SizedBox(width: 8),
                       InkWell(
                         onTap: () => _openLeadDetailsPage(row, editMode: false),
@@ -3785,28 +3790,22 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                     ? Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
+                          if (_isManager) ...[
+                            IconButton(
+                              icon: const Icon(Icons.history_rounded, size: 15, color: Color(0xFF64748B)),
+                              onPressed: () => _showEditHistoryDialog(rowId: rowData!.id, leadName: rowData.leadName),
+                              tooltip: 'History',
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                            ),
+                            const SizedBox(width: 4),
+                          ],
                           IconButton(
-                            icon: const Icon(Icons.edit_outlined, size: 15, color: AppColors.primary),
-                            onPressed: () => _startInlineRowEdit(rowData!),
-                            tooltip: 'Edit in Box',
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                          ),
-                          const SizedBox(width: 2),
-                          IconButton(
-                            icon: const Icon(Icons.history_rounded, size: 14, color: Color(0xFF64748B)),
-                            onPressed: () => _showEditHistoryDialog(rowId: rowData!.id, leadName: rowData.leadName),
-                            tooltip: 'History',
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                          ),
-                          const SizedBox(width: 2),
-                          IconButton(
-                            icon: const Icon(Icons.open_in_new_rounded, size: 14, color: Color(0xFF64748B)),
+                            icon: const Icon(Icons.open_in_new_rounded, size: 15, color: Color(0xFF64748B)),
                             onPressed: () => _openLeadDetailsPage(rowData!, editMode: false),
                             tooltip: 'Details',
                             padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                            constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
                           ),
                         ],
                       )

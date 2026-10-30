@@ -797,8 +797,8 @@ class _LeadDetailsScreenState extends State<LeadDetailsScreen> {
             ),
           ),
 
-          // Action Buttons
-          if (!_isEditing) ...[
+          // Action Buttons (History only visible to Manager)
+          if (!_isEditing && _isManager) ...[
             OutlinedButton.icon(
               onPressed: _showRowHistoryDialog,
               icon: const Icon(Icons.history_rounded, size: 17),
