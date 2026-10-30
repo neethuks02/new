@@ -1,0 +1,15 @@
+icon_font:
+  input_svg_dir: "assets/svg/light"
+  output_font_file: "assets/fonts/Iconex-Light.otf"
+
+  output_class_file: "lib/generated/iconex_light.dart"
+  class_name: "IconexLightData"
+  package: iconex_flutter
+  format: true
+
+  font_name: "Iconex Light"
+  normalize: true
+  ignore_shapes: false
+
+  recursive: true
+  verbose: false

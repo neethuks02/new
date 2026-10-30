@@ -1,0 +1,15 @@
+icon_font:
+  input_svg_dir: "assets/svg/broken"
+  output_font_file: "assets/fonts/Iconex-Broken.otf"
+
+  output_class_file: "lib/generated/iconex_broken.dart"
+  class_name: "IconexBrokenData"
+  package: iconex_flutter
+  format: true
+
+  font_name: "Iconex Broken"
+  normalize: true
+  ignore_shapes: true
+
+  recursive: true
+  verbose: false

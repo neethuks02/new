@@ -1,0 +1,15 @@
+icon_font:
+  input_svg_dir: "assets/svg/filled"
+  output_font_file: "assets/fonts/Iconex-Filled.otf"
+
+  output_class_file: "lib/generated/iconex_filled.dart"
+  class_name: "IconexFilledData"
+  package: iconex_flutter
+  format: true
+
+  font_name: "Iconex Filled"
+  normalize: true
+  ignore_shapes: true
+
+  recursive: true
+  verbose: false

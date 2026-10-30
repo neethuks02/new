@@ -1,0 +1,54 @@
+name: iconex_flutter
+description: "A Flutter implementation of the Iconex icon collection originally designed by Dmitry Mikhaylov."
+version: 1.0.2
+homepage: https://github.com/budggy-inc/iconex_flutter
+repository: https://github.com/budggy-inc/iconex_flutter
+issue_tracker: https://github.com/budggy-inc/iconex_flutter/issues
+
+environment:
+  sdk: ">=3.9.2 <4.0.0"
+  flutter: ">=3.22.0"
+
+topics:
+  - icons
+  - svg
+  - ui
+  - design
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  icon_font_generator: ^4.0.0
+
+flutter:
+  assets:
+    - assets/fonts/
+    - assets/svg/broken/
+    - assets/svg/filled/
+    - assets/svg/light/
+
+  fonts:
+    - family: Iconex Broken
+      fonts:
+        - asset: assets/fonts/Iconex-Broken.otf
+
+    - family: Iconex Filled
+      fonts:
+        - asset: assets/fonts/Iconex-Filled.otf
+
+    - family: Iconex Light
+      fonts:
+        - asset: assets/fonts/Iconex-Light.otf
+
+screenshots:
+  - description: 'Iconex Flutter — Light icons'
+    path: screenshots/iconex_showcase_light.png
+  - description: 'Iconex Flutter — Filled icons'
+    path: screenshots/iconex_showcase_filled.png
+  - description: 'Iconex Flutter — Broken icons'
+    path: screenshots/iconex_showcase_broken.png
