@@ -42,6 +42,7 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
 
   // Real-time Cell Auto-Save State
   Timer? _autoSaveTimer;
+  Timer? _autoSaveNewLeadTimer;
   bool _isAutoSaving = false;
   String? _lastAutoSavedField;
 
@@ -102,6 +103,7 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
   @override
   void dispose() {
     _autoSaveTimer?.cancel();
+    _autoSaveNewLeadTimer?.cancel();
     _searchController.dispose();
     _horizontalController.dispose();
     _verticalController.dispose();
@@ -534,6 +536,102 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
             margin: const EdgeInsets.all(16),
           ),
         );
+      }
+    }
+  }
+
+  // =========================================================================
+  // REAL-TIME AUTO-SAVE FOR NEW LEADS (No "Save Lead" button needed!)
+  // Automatically creates the new lead in backend as the user types
+  // =========================================================================
+  void _triggerAutoSaveNewLead() {
+    _autoSaveNewLeadTimer?.cancel();
+    setState(() {
+      _isAutoSaving = true;
+    });
+
+    _autoSaveNewLeadTimer = Timer(const Duration(milliseconds: 900), () async {
+      await _commitAutoSaveNewLead();
+    });
+  }
+
+  Future<void> _commitAutoSaveNewLead({bool showToast = false}) async {
+    _autoSaveNewLeadTimer?.cancel();
+    if (_sheet == null || !_isAddingInlineRow) return;
+
+    final Map<String, dynamic> rowData = {};
+    for (var col in _sheet!.columns) {
+      final text = _newRowControllers[col.columnKey]?.text.trim() ??
+                   _newRowControllers[col.columnName]?.text.trim() ?? '';
+      if (text.isNotEmpty) {
+        rowData[col.columnName] = text;
+        rowData[col.columnKey] = text;
+      }
+    }
+
+    if (rowData.isEmpty) {
+      if (mounted) setState(() => _isAutoSaving = false);
+      return;
+    }
+
+    final rawStatus = (rowData['Status'] ?? rowData['status'] ?? _newRowStatus).toString();
+    final statusVal = rawStatus.toLowerCase().replaceAll(' ', '_');
+    rowData['Status'] = _formatStatusLabel(rawStatus);
+    rowData['status'] = statusVal;
+
+    if (!mounted) return;
+    setState(() {
+      _isAutoSaving = true;
+      _isSavingInline = true;
+    });
+
+    try {
+      final sheetId = int.tryParse(widget.sheetId) ?? _sheet!.id;
+      final response = await ApiService.addRow(
+        sheetId: sheetId,
+        createdBy: _currentUserId,
+        status: statusVal,
+        data: rowData,
+      );
+
+      if (!mounted) return;
+
+      if (response['status'] == true) {
+        _isAddingInlineRow = false;
+        await _fetchSheetData();
+        if (mounted) {
+          setState(() {
+            _isAutoSaving = false;
+            _isSavingInline = false;
+            _lastAutoSavedField = 'New Lead';
+          });
+          if (showToast) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Row(
+                  children: [
+                    Icon(Icons.check_circle_rounded, color: Colors.white, size: 16),
+                    SizedBox(width: 8),
+                    Text('New lead auto-saved successfully!'),
+                  ],
+                ),
+                backgroundColor: Color(0xFF16A34A),
+                duration: Duration(seconds: 1),
+                behavior: SnackBarBehavior.floating,
+                margin: EdgeInsets.all(16),
+              ),
+            );
+          }
+        }
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAutoSaving = false;
+          _isSavingInline = false;
+        });
       }
     }
   }
@@ -1782,7 +1880,7 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                       label: Text(
                         _isSavingInline
                             ? 'Saving...'
-                            : (_isAddingInlineRow ? 'Save Lead' : 'Save Row #$_editingRowId'),
+                            : 'Done (Auto-saved)',
                         style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                       ),
                       style: ElevatedButton.styleFrom(
@@ -3141,8 +3239,8 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                           onPressed: _isSavingInline ? null : _saveInlineAddLead,
                           icon: _isSavingInline
                               ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                              : const Icon(Icons.check_rounded, size: 16),
-                          label: Text(_isSavingInline ? 'Saving...' : 'Save Lead', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                              : const Icon(Icons.check_circle_rounded, size: 16),
+                          label: Text(_isSavingInline ? 'Saving...' : 'Done (Auto-saved)', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF16A34A),
                             foregroundColor: Colors.white,
@@ -3155,7 +3253,7 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                         OutlinedButton.icon(
                           onPressed: _isSavingInline ? null : _cancelInlineAddLead,
                           icon: const Icon(Icons.close_rounded, size: 16),
-                          label: const Text('Cancel', style: TextStyle(fontSize: 12)),
+                          label: const Text('Close', style: TextStyle(fontSize: 12)),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: const Color(0xFF64748B),
                             side: const BorderSide(color: Color(0xFFCBD5E1)),
@@ -3165,7 +3263,7 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                         ),
                         const SizedBox(width: 14),
                         const Text(
-                          'Adding new lead — Type into the row boxes below and click Save Lead',
+                          '⚡ Auto-Save Active — Type into any cell box below and it saves automatically!',
                           style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF16A34A)),
                         ),
                       ] else if (_editingRowId != null) ...[
@@ -3181,8 +3279,8 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                                 onPressed: _isSavingInline ? null : () => _saveInlineRowEdit(editingRow),
                                 icon: _isSavingInline
                                     ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                    : const Icon(Icons.check_rounded, size: 16),
-                                label: Text(_isSavingInline ? 'Saving...' : 'Save Row #$_editingRowId', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
+                                    : const Icon(Icons.check_circle_rounded, size: 16),
+                                label: Text(_isSavingInline ? 'Saving...' : 'Done (Auto-saved)', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold)),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: const Color(0xFF16A34A),
                                   foregroundColor: Colors.white,
@@ -3195,7 +3293,7 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                               OutlinedButton.icon(
                                 onPressed: _isSavingInline ? null : _cancelInlineRowEdit,
                                 icon: const Icon(Icons.close_rounded, size: 16),
-                                label: const Text('Cancel', style: TextStyle(fontSize: 12)),
+                                label: const Text('Close', style: TextStyle(fontSize: 12)),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: const Color(0xFF64748B),
                                   side: const BorderSide(color: Color(0xFFCBD5E1)),
@@ -3205,8 +3303,8 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                               ),
                               const SizedBox(width: 14),
                               Text(
-                                'Editing row #$_editingRowId — Type into the boxes below and click Save',
-                                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF1D4ED8)),
+                                '⚡ Auto-Save Active — Row #$_editingRowId cell changes are saving automatically!',
+                                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF16A34A)),
                               ),
                             ],
                           );
@@ -3546,6 +3644,7 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                       if (_newRowControllers.containsKey(col.columnName)) _newRowControllers[col.columnName]!.text = selectedVal;
                       if (isStatusCol) _newRowStatus = selectedVal.toLowerCase().replaceAll(' ', '_');
                     });
+                    _triggerAutoSaveNewLead();
                   },
                 );
               }
@@ -3566,8 +3665,11 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                   style: const TextStyle(fontSize: 12, color: Color(0xFF0F172A), fontWeight: FontWeight.w400),
                   cursorColor: const Color(0xFF1A73E8),
                   textInputAction: TextInputAction.done,
+                  onChanged: (val) {
+                    _triggerAutoSaveNewLead();
+                  },
                   onSubmitted: (_) {
-                    _saveInlineAddLead();
+                    _commitAutoSaveNewLead(showToast: true);
                   },
                   decoration: InputDecoration(
                     isDense: true,
