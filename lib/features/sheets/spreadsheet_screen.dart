@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -38,6 +39,11 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
   String _newRowStatus = 'new';
   final Map<String, TextEditingController> _editRowControllers = {};
   String _editRowStatus = 'new';
+
+  // Real-time Cell Auto-Save State
+  Timer? _autoSaveTimer;
+  bool _isAutoSaving = false;
+  String? _lastAutoSavedField;
 
   int get _sheetTotalCount {
     if (_sheet == null) return 0;
@@ -95,6 +101,7 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
 
   @override
   void dispose() {
+    _autoSaveTimer?.cancel();
     _searchController.dispose();
     _horizontalController.dispose();
     _verticalController.dispose();
@@ -431,6 +438,102 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
     } finally {
       if (mounted) {
         setState(() => _isSavingInline = false);
+      }
+    }
+  }
+
+  // =========================================================================
+  // REAL-TIME AUTO-SAVE FOR EVERY CELL BOX (Requirement 3)
+  // Auto-saves immediately upon typing (debounced) or pressing Enter/blur
+  // =========================================================================
+  void _triggerAutoSave(ApiRow row, ApiColumn col, String newValue) {
+    _autoSaveTimer?.cancel();
+    setState(() {
+      _isAutoSaving = true;
+    });
+
+    _autoSaveTimer = Timer(const Duration(milliseconds: 700), () async {
+      await _commitAutoSave(row, col, newValue, showToast: false);
+    });
+  }
+
+  Future<void> _commitAutoSave(ApiRow row, ApiColumn col, String newValue, {bool showToast = true}) async {
+    _autoSaveTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _isAutoSaving = true;
+    });
+
+    final colLower = col.columnName.trim().toLowerCase();
+    final keyLower = col.columnKey.trim().toLowerCase();
+    final isStatus = colLower == 'status' || keyLower == 'status' || colLower.contains('status') || keyLower.contains('status');
+
+    row.setValue(col, newValue);
+    if (isStatus) {
+      final statusVal = newValue.toLowerCase().replaceAll(' ', '_');
+      row.status = statusVal;
+      row.data['status'] = statusVal;
+      row.data['Status'] = _formatStatusLabel(newValue);
+    }
+
+    try {
+      if (isStatus) {
+        await ApiService.updateRow(
+          rowId: row.id,
+          userId: _currentUserId,
+          role: _getUserRoleString(),
+          status: row.status,
+          data: {
+            col.columnKey: newValue,
+            col.columnName: newValue,
+            'Status': _formatStatusLabel(newValue),
+            'status': row.status,
+          },
+        );
+      } else {
+        final res = await ApiService.updateCell(
+          rowId: row.id,
+          columnKey: col.columnKey,
+          value: newValue,
+          userId: _currentUserId,
+        );
+        if (res['status'] != true) {
+          await ApiService.updateRow(
+            rowId: row.id,
+            userId: _currentUserId,
+            role: _getUserRoleString(),
+            data: {
+              col.columnKey: newValue,
+              col.columnName: newValue,
+            },
+          );
+        }
+      }
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() {
+        _isAutoSaving = false;
+        _lastAutoSavedField = col.columnName;
+      });
+
+      if (showToast) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, color: Colors.white, size: 16),
+                const SizedBox(width: 8),
+                Text('${col.columnName} auto-saved', style: const TextStyle(fontSize: 12)),
+              ],
+            ),
+            backgroundColor: const Color(0xFF16A34A),
+            duration: const Duration(seconds: 1),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(16),
+          ),
+        );
       }
     }
   }
@@ -1744,70 +1847,39 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                   ],
                 ],
 
-                // Accounts Assignment Indicator & Action (Manager or Executive)
-                if (_assignedAccountsUser != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8.0, bottom: 8.0, right: 12.0),
-                    child: InkWell(
-                      onTap: (_isManager || _isExecutive) ? _showAssignToAccountsDialog : null,
+                // Real-time Auto-Save Cloud Status Indicator (Auto-saves all cell edits)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8.0, bottom: 8.0, right: 12.0),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _isAutoSaving ? const Color(0xFFFEF3C7) : const Color(0xFFDCFCE7),
                       borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFD1FAE5),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFFA7F3D0)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.account_balance_wallet_rounded, size: 15, color: Color(0xFF059669)),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Accounts: ${_assignedAccountsUser!.name}',
-                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF065F46)),
-                            ),
-                            if (_isManager || _isExecutive) ...[
-                              const SizedBox(width: 6),
-                              const Icon(Icons.edit_outlined, size: 13, color: Color(0xFF059669)),
-                            ],
-                          ],
-                        ),
-                      ),
+                      border: Border.all(color: _isAutoSaving ? const Color(0xFFFDE68A) : const Color(0xFFBBF7D0)),
                     ),
-                  )
-                else ...[
-                  if (_isManager)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8.0, bottom: 8.0, right: 12.0),
-                      child: OutlinedButton.icon(
-                        onPressed: _showAssignToAccountsDialog,
-                        icon: const Icon(Icons.account_balance_wallet_outlined, size: 16),
-                        label: const Text('Assign Accounts', style: TextStyle(fontSize: 12)),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.success,
-                          side: const BorderSide(color: AppColors.success),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _isAutoSaving ? Icons.sync_rounded : Icons.cloud_done_rounded,
+                          size: 15,
+                          color: _isAutoSaving ? const Color(0xFFD97706) : const Color(0xFF16A34A),
                         ),
-                      ),
-                    )
-                  else if (_isExecutive)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8.0, bottom: 8.0, right: 12.0),
-                      child: ElevatedButton.icon(
-                        onPressed: _showAssignToAccountsDialog,
-                        icon: const Icon(Icons.send_rounded, size: 16),
-                        label: const Text('Send to Accounts', style: TextStyle(fontSize: 12)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.success,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        const SizedBox(width: 6),
+                        Text(
+                          _isAutoSaving
+                              ? 'Auto-saving...'
+                              : (_lastAutoSavedField != null ? '$_lastAutoSavedField saved' : 'Auto-save on'),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: _isAutoSaving ? const Color(0xFFB45309) : const Color(0xFF15803D),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                ],
+                  ),
+                ),
               ]
             : [
                 // MOBILE ADAPTIVE CLEAN ACTIONS (ZERO OVERFLOW)
@@ -1874,7 +1946,6 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                       if (val == 'history') _showEditHistoryDialog();
                       if (val == 'add_lead') _showAddLeadDialog();
                       if (val == 'assign_staff') _showAssignToStaffDialog();
-                      if (val == 'assign_accounts') _showAssignToAccountsDialog();
                     },
                     itemBuilder: (ctx) => [
                       const PopupMenuItem(
@@ -1909,22 +1980,6 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                           ),
                         ),
                       ],
-                      if (_isManager || _isExecutive)
-                        PopupMenuItem(
-                          value: 'assign_accounts',
-                          child: Row(
-                            children: [
-                              const Icon(Icons.account_balance_wallet_outlined, size: 18, color: Color(0xFF059669)),
-                              const SizedBox(width: 10),
-                              Text(
-                                _assignedAccountsUser != null
-                                    ? 'Accounts: ${_assignedAccountsUser!.name}'
-                                    : 'Assign Accounts',
-                                style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
-                              ),
-                            ],
-                          ),
-                        ),
                     ],
                   ),
               ],
@@ -2059,44 +2114,6 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Accounts Assigned Banner (if sheet is assigned to accounts)
-          if (_assignedAccountsUser != null)
-            Container(
-              margin: const EdgeInsets.fromLTRB(16, 10, 16, 4),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFECFDF5),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFA7F3D0)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.account_balance_wallet_rounded, size: 16, color: Color(0xFF059669)),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Assigned to Accounts: ${_assignedAccountsUser!.name}',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF065F46)),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (_isManager || _isExecutive)
-                    GestureDetector(
-                      onTap: _showAssignToAccountsDialog,
-                      child: const Text(
-                        'Change',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF059669),
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-
           // Full-width Search Input
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
@@ -3058,18 +3075,38 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
   }
 
   double _getColumnWidth(ApiColumn col) {
-    final nameLower = col.columnName.toLowerCase();
-    if (nameLower.contains('number') && !nameLower.contains('account')) return 145.0;
-    if (nameLower == 'name' || nameLower == 'candidate name') return 180.0;
-    if (nameLower.contains('country')) return 130.0;
-    if (nameLower.contains('agency') || nameLower.contains('company')) return 175.0;
-    if (nameLower.contains('amount') || nameLower.contains('charge') || nameLower.contains('credit') || nameLower.contains('payment')) return 165.0;
-    if (nameLower.contains('profit') || nameLower.contains('cash')) return 145.0;
-    if (nameLower.contains('bank')) return 165.0;
-    if (nameLower.contains('advance')) return 165.0;
-    if (nameLower.contains('status')) return 145.0;
-    if (_isDropdownColumn(col)) return 155.0;
-    return (col.columnName.length * 9.5 + 70.0).clamp(140.0, 250.0);
+    final name = col.columnName.trim();
+    final nameLower = name.toLowerCase();
+
+    // Requirement 2: Generous width based on text length so column names are 100% fully visible
+    double width = (name.length * 11.5) + 85.0;
+
+    if (nameLower.contains('candidate') || nameLower.contains('student')) {
+      width = math.max(width, 210.0);
+    }
+    if (nameLower.contains('payment') || nameLower.contains('collected') || nameLower.contains('company')) {
+      width = math.max(width, 205.0);
+    }
+    if (nameLower.contains('agency') || nameLower.contains('description')) {
+      width = math.max(width, 195.0);
+    }
+    if (nameLower.contains('working amount') || nameLower.contains('advance')) {
+      width = math.max(width, 185.0);
+    }
+    if (nameLower.contains('number') || nameLower.contains('phone')) {
+      width = math.max(width, 175.0);
+    }
+    if (nameLower.contains('country')) {
+      width = math.max(width, 160.0);
+    }
+    if (nameLower.contains('status')) {
+      width = math.max(width, 165.0);
+    }
+    if (_isDropdownColumn(col)) {
+      width = math.max(width, 175.0);
+    }
+
+    return width.clamp(160.0, 380.0);
   }
 
   Widget _buildExcelTableView() {
@@ -3272,7 +3309,7 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
           // Row Index Header Box (#)
           Container(
             width: 50,
-            height: 38,
+            height: 46,
             alignment: Alignment.center,
             decoration: const BoxDecoration(
               border: Border(
@@ -3297,7 +3334,7 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
 
             return Container(
               width: width,
-              height: 38,
+              height: 46,
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: const BoxDecoration(
                 border: Border(
@@ -3308,11 +3345,21 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
               child: Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      col.columnName,
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Color(0xFF1E293B)),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    child: Tooltip(
+                      message: col.columnName,
+                      preferBelow: false,
+                      child: Text(
+                        col.columnName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                          color: Color(0xFF1E293B),
+                          height: 1.25,
+                        ),
+                        maxLines: 2,
+                        softWrap: true,
+                        overflow: TextOverflow.visible,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 4),
@@ -3335,7 +3382,7 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
           // Actions Column Header Box
           Container(
             width: 100,
-            height: 38,
+            height: 46,
             alignment: Alignment.center,
             decoration: const BoxDecoration(
               border: Border(
@@ -3435,6 +3482,9 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                       if (_editRowControllers.containsKey(col.columnName)) _editRowControllers[col.columnName]!.text = selectedVal;
                       if (isStatusCol) _editRowStatus = selectedVal.toLowerCase().replaceAll(' ', '_');
                     });
+                    if (rowData != null) {
+                      _commitAutoSave(rowData, col, selectedVal, showToast: false);
+                    }
                   },
                 );
               }
@@ -3455,9 +3505,14 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                   style: const TextStyle(fontSize: 12, color: Color(0xFF0F172A), fontWeight: FontWeight.w400),
                   cursorColor: const Color(0xFF1A73E8),
                   textInputAction: TextInputAction.done,
-                  onSubmitted: (_) {
+                  onChanged: (newVal) {
                     if (rowData != null) {
-                      _saveInlineRowEdit(rowData);
+                      _triggerAutoSave(rowData, col, newVal);
+                    }
+                  },
+                  onSubmitted: (newVal) {
+                    if (rowData != null) {
+                      _commitAutoSave(rowData, col, newVal, showToast: true);
                     }
                   },
                   decoration: const InputDecoration(
