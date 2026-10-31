@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
 import 'package:agency_head/core/theme/app_colors.dart';
 import 'package:agency_head/core/network/api_service.dart';
@@ -3212,6 +3213,385 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
     return width.clamp(160.0, 380.0);
   }
 
+  // =========================================================================
+  // EXCEL COLUMN CALCULATIONS & FORMULAS (SUM, AVG, MIN, MAX, COUNT)
+  // =========================================================================
+  bool _isNumericColumn(ApiColumn col) {
+    if (col.columnType.toLowerCase() == 'number') return true;
+    final nameLower = col.columnName.trim().toLowerCase();
+    return nameLower.contains('amount') ||
+        nameLower.contains('charge') ||
+        nameLower.contains('profit') ||
+        nameLower.contains('credit') ||
+        nameLower.contains('cash') ||
+        nameLower.contains('advance') ||
+        nameLower.contains('price') ||
+        nameLower.contains('fee') ||
+        nameLower.contains('balance') ||
+        nameLower.contains('salary');
+  }
+
+  double _calculateColumnSum(ApiColumn col, List<ApiRow> rows) {
+    double sum = 0.0;
+    for (final r in rows) {
+      final raw = r.getValue(col).trim();
+      if (raw.isEmpty) continue;
+      final cleaned = raw.replaceAll(RegExp(r'[^\d.-]'), '');
+      final val = double.tryParse(cleaned);
+      if (val != null) sum += val;
+    }
+    return sum;
+  }
+
+  double _calculateColumnAvg(ApiColumn col, List<ApiRow> rows) {
+    double sum = 0.0;
+    int count = 0;
+    for (final r in rows) {
+      final raw = r.getValue(col).trim();
+      if (raw.isEmpty) continue;
+      final cleaned = raw.replaceAll(RegExp(r'[^\d.-]'), '');
+      final val = double.tryParse(cleaned);
+      if (val != null) {
+        sum += val;
+        count++;
+      }
+    }
+    return count > 0 ? (sum / count) : 0.0;
+  }
+
+  double? _calculateColumnMin(ApiColumn col, List<ApiRow> rows) {
+    double? minVal;
+    for (final r in rows) {
+      final raw = r.getValue(col).trim();
+      if (raw.isEmpty) continue;
+      final cleaned = raw.replaceAll(RegExp(r'[^\d.-]'), '');
+      final val = double.tryParse(cleaned);
+      if (val != null) {
+        if (minVal == null || val < minVal) minVal = val;
+      }
+    }
+    return minVal;
+  }
+
+  double? _calculateColumnMax(ApiColumn col, List<ApiRow> rows) {
+    double? maxVal;
+    for (final r in rows) {
+      final raw = r.getValue(col).trim();
+      if (raw.isEmpty) continue;
+      final cleaned = raw.replaceAll(RegExp(r'[^\d.-]'), '');
+      final val = double.tryParse(cleaned);
+      if (val != null) {
+        if (maxVal == null || val > maxVal) maxVal = val;
+      }
+    }
+    return maxVal;
+  }
+
+  String _formatCurrency(double value) {
+    if (value >= 1000) {
+      return NumberFormat.currency(symbol: '₹', decimalDigits: 0).format(value);
+    } else if (value % 1 == 0) {
+      return '₹${value.toInt()}';
+    } else {
+      return '₹${value.toStringAsFixed(2)}';
+    }
+  }
+
+  void _showExcelCalculationsModal(List<ApiColumn> cols, List<ApiRow> rows) {
+    final numericCols = cols.where(_isNumericColumn).toList();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.75,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 10, bottom: 6),
+                width: 44,
+                height: 4.5,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF16A34A).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.calculate_rounded, color: Color(0xFF16A34A), size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Excel Column Calculations', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+                          Text('Live Sum, Average & Counts for all amount columns', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: numericCols.isEmpty
+                    ? const Center(child: Text('No amount or numeric columns found in this sheet.', style: TextStyle(color: Color(0xFF64748B))))
+                    : ListView.separated(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: numericCols.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final col = numericCols[index];
+                          final sum = _calculateColumnSum(col, rows);
+                          final avg = _calculateColumnAvg(col, rows);
+                          final minVal = _calculateColumnMin(col, rows);
+                          final maxVal = _calculateColumnMax(col, rows);
+                          final count = rows.where((r) => r.getValue(col).trim().isNotEmpty).length;
+
+                          return Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        col.columnName,
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14.5, color: Color(0xFF0F172A)),
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFDCFCE7),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        'SUM: ${_formatCurrency(sum)}',
+                                        style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF15803D), fontSize: 13),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _buildFormulaMetricTile(
+                                        label: 'Average',
+                                        value: _formatCurrency(avg),
+                                        icon: Icons.functions_rounded,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _buildFormulaMetricTile(
+                                        label: 'Entries',
+                                        value: '$count leads',
+                                        icon: Icons.tag_rounded,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: _buildFormulaMetricTile(
+                                        label: 'Highest',
+                                        value: maxVal != null ? _formatCurrency(maxVal) : '₹0',
+                                        icon: Icons.arrow_upward_rounded,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFormulaMetricTile({required String label, required String value, required IconData icon}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFCBD5E1), width: 0.8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 12, color: const Color(0xFF64748B)),
+              const SizedBox(width: 4),
+              Text(label, style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Color(0xFF1E293B)),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildExcelCalculationsRow(List<ApiColumn> cols, List<ApiRow> rows) {
+    return Container(
+      color: const Color(0xFFF8FAFC),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Index Header Box (# -> ∑ TOTAL)
+          Container(
+            width: 50,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: const BoxDecoration(
+              color: Color(0xFFE2E8F0),
+              border: Border(
+                right: BorderSide(color: Color(0xFFCBD5E1), width: 1),
+                top: BorderSide(color: Color(0xFF94A3B8), width: 1.5),
+              ),
+            ),
+            child: const Text('∑', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Color(0xFF0F172A))),
+          ),
+
+          // Each Column Calculation Box
+          ...cols.map((col) {
+            final width = _getColumnWidth(col);
+            final isNumeric = _isNumericColumn(col);
+
+            if (isNumeric) {
+              final sum = _calculateColumnSum(col, rows);
+              final avg = _calculateColumnAvg(col, rows);
+              final filledCount = rows.where((r) => r.getValue(col).trim().isNotEmpty).length;
+              final sumStr = _formatCurrency(sum);
+              final avgStr = _formatCurrency(avg);
+
+              return Tooltip(
+                message: '${col.columnName}\nSUM: $sumStr\nAVERAGE: $avgStr\nCOUNT: $filledCount',
+                child: Container(
+                  width: width,
+                  height: 40,
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFF1F5F9),
+                    border: Border(
+                      right: BorderSide(color: Color(0xFFCBD5E1), width: 1),
+                      top: BorderSide(color: Color(0xFF94A3B8), width: 1.5),
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          const Text('∑ ', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: Color(0xFF16A34A))),
+                          Flexible(
+                            child: Text(
+                              sumStr,
+                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: Color(0xFF0F172A)),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        'Avg: $avgStr',
+                        style: const TextStyle(fontSize: 9.5, color: Color(0xFF64748B), fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            final filledCount = rows.where((r) => r.getValue(col).trim().isNotEmpty).length;
+            final isNameCol = col.columnName.trim().toLowerCase() == 'name' || col.columnKey.toLowerCase() == 'name';
+
+            return Container(
+              width: width,
+              height: 40,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              alignment: Alignment.centerLeft,
+              decoration: const BoxDecoration(
+                color: Color(0xFFF8FAFC),
+                border: Border(
+                  right: BorderSide(color: Color(0xFFCBD5E1), width: 1),
+                  top: BorderSide(color: Color(0xFF94A3B8), width: 1.5),
+                ),
+              ),
+              child: isNameCol
+                  ? Text(
+                      'TOTAL (${rows.length} Leads)',
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: Color(0xFF475569)),
+                      overflow: TextOverflow.ellipsis,
+                    )
+                  : Text(
+                      filledCount > 0 ? 'Count: $filledCount' : '',
+                      style: const TextStyle(fontSize: 10.5, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+            );
+          }),
+
+          // Actions Column Footer Box
+          Container(
+            width: 100,
+            height: 40,
+            alignment: Alignment.center,
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8FAFC),
+              border: Border(
+                top: BorderSide(color: Color(0xFF94A3B8), width: 1.5),
+              ),
+            ),
+            child: Text(
+              '${rows.length} rows',
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11, color: Color(0xFF64748B)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildExcelTableView() {
     if (_sheet == null) {
       return const Center(child: CircularProgressIndicator());
@@ -3339,7 +3719,21 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
+              // Excel Formula / Calculation Quick Button
+              ElevatedButton.icon(
+                onPressed: () => _showExcelCalculationsModal(cols, rows),
+                icon: const Icon(Icons.calculate_rounded, size: 15),
+                label: const Text('∑ Formulas', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0F172A),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  elevation: 0,
+                ),
+              ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
@@ -3356,23 +3750,19 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
           ),
         ),
 
-        // Full Page Google Sheets Grid (Vertical & Horizontal Scrollbars)
+        // Full Page Google Sheets Grid with FROZEN STICKY HEADER & EXCEL TOTALS FOOTER
         Expanded(
-          child: Scrollbar(
-            controller: _verticalController,
-            thumbVisibility: true,
-            child: Scrollbar(
-              controller: _horizontalController,
-              thumbVisibility: true,
-              notificationPredicate: (notif) => notif.depth == 1,
-              child: SingleChildScrollView(
-                controller: _verticalController,
-                scrollDirection: Axis.vertical,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return Scrollbar(
+                controller: _horizontalController,
+                thumbVisibility: true,
                 child: SingleChildScrollView(
                   controller: _horizontalController,
                   scrollDirection: Axis.horizontal,
                   child: Container(
-                    margin: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+                    height: constraints.maxHeight - 16,
                     decoration: BoxDecoration(
                       border: Border.all(color: const Color(0xFFCBD5E1), width: 1),
                       color: Colors.white,
@@ -3380,22 +3770,40 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Column Headers Row (Row 0)
+                        // 1. FROZEN STICKY HEADER ROW (Always visible even after 15+ rows!)
                         _buildGridHeaderRow(cols),
 
-                        // All Rows: Data rows + Active Add row + Empty Google Sheets rows filling the page
-                        for (int i = 0; i < totalRowCount; i++)
-                          _buildGridRow(
-                            displayIndex: i,
-                            rows: rows,
-                            cols: cols,
+                        // 2. SCROLLABLE ROWS BODY (Vertical scroll with scrollbar)
+                        Expanded(
+                          child: Scrollbar(
+                            controller: _verticalController,
+                            thumbVisibility: true,
+                            child: SingleChildScrollView(
+                              controller: _verticalController,
+                              scrollDirection: Axis.vertical,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  for (int i = 0; i < totalRowCount; i++)
+                                    _buildGridRow(
+                                      displayIndex: i,
+                                      rows: rows,
+                                      cols: cols,
+                                    ),
+                                ],
+                              ),
+                            ),
                           ),
+                        ),
+
+                        // 3. EXCEL CALCULATION / SUMMARY ROW (Pinned at bottom!)
+                        _buildExcelCalculationsRow(cols, rows),
                       ],
                     ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ),
       ],

@@ -442,13 +442,23 @@ class ApiService {
       body['role'] = role;
     }
 
-    // CodeIgniter endpoint reads $_POST and requires application/x-www-form-urlencoded
-    final res = await _postForm('sheet_details', body);
-    if (res['status'] == true) {
-      return res;
-    }
+    // Primary: GET api/sheet_details?sheet_id={sheet_id} (Required by backend)
+    try {
+      final getRes = await _get('sheet_details?sheet_id=$sheetId${userId > 0 ? '&user_id=$userId' : ''}${role != null && role.isNotEmpty ? '&role=$role' : ''}');
+      if (getRes['status'] == true) {
+        return getRes;
+      }
+    } catch (_) {}
 
-    // Fallback to application/json in case backend changes in future
+    // Fallback: POST Form
+    try {
+      final res = await _postForm('sheet_details', body);
+      if (res['status'] == true) {
+        return res;
+      }
+    } catch (_) {}
+
+    // Fallback: POST JSON
     try {
       final jsonRes = await _post('sheet_details', body);
       if (jsonRes['status'] == true) {
@@ -456,15 +466,7 @@ class ApiService {
       }
     } catch (_) {}
 
-    // Fallback to GET api/sheet_details?sheet_id={sheet_id}
-    try {
-      final getRes = await _get('sheet_details?sheet_id=$sheetId${userId > 0 ? '&user_id=$userId' : ''}${role != null ? '&role=$role' : ''}');
-      if (getRes['status'] == true) {
-        return getRes;
-      }
-    } catch (_) {}
-
-    return res;
+    return {'status': false, 'message': 'Failed to load sheet details.'};
   }
 
   /// 1.3 Add Row / Lead to Sheet (Manager)
