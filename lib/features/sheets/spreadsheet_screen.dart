@@ -30,6 +30,8 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
 
   final ScrollController _horizontalController = ScrollController();
   final ScrollController _verticalController = ScrollController();
+  final ScrollController _headerHorizontalController = ScrollController();
+  final ScrollController _footerHorizontalController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
 
   // Inline Spreadsheet Row Adding & Editing State (No Modal Dialogs!)
@@ -81,6 +83,25 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
   @override
   void initState() {
     super.initState();
+    // Synchronize horizontal scrolling across Header, Data Rows, and Footer Totals
+    _horizontalController.addListener(() {
+      if (_headerHorizontalController.hasClients &&
+          _headerHorizontalController.offset != _horizontalController.offset) {
+        _headerHorizontalController.jumpTo(_horizontalController.offset);
+      }
+      if (_footerHorizontalController.hasClients &&
+          _footerHorizontalController.offset != _horizontalController.offset) {
+        _footerHorizontalController.jumpTo(_horizontalController.offset);
+      }
+    });
+
+    _headerHorizontalController.addListener(() {
+      if (_horizontalController.hasClients &&
+          _horizontalController.offset != _headerHorizontalController.offset) {
+        _horizontalController.jumpTo(_headerHorizontalController.offset);
+      }
+    });
+
     _initAndLoad();
   }
 
@@ -106,6 +127,8 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
     _autoSaveTimer?.cancel();
     _autoSaveNewLeadTimer?.cancel();
     _searchController.dispose();
+    _headerHorizontalController.dispose();
+    _footerHorizontalController.dispose();
     _horizontalController.dispose();
     _verticalController.dispose();
     for (var ctrl in _newRowControllers.values) {
@@ -3752,58 +3775,70 @@ class _SpreadsheetScreenState extends State<SpreadsheetScreen> {
 
         // Full Page Google Sheets Grid with FROZEN STICKY HEADER & EXCEL TOTALS FOOTER
         Expanded(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return Scrollbar(
-                controller: _horizontalController,
-                thumbVisibility: true,
-                child: SingleChildScrollView(
-                  controller: _horizontalController,
-                  scrollDirection: Axis.horizontal,
-                  child: Container(
-                    margin: const EdgeInsets.fromLTRB(12, 6, 12, 10),
-                    height: constraints.maxHeight - 16,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: const Color(0xFFCBD5E1), width: 1),
-                      color: Colors.white,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // 1. FROZEN STICKY HEADER ROW (Always visible even after 15+ rows!)
-                        _buildGridHeaderRow(cols),
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0xFFCBD5E1), width: 1),
+              color: Colors.white,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 1. FROZEN STICKY HEADER ROW (Always visible even after 15+ rows!)
+                NotificationListener<ScrollNotification>(
+                  onNotification: (notif) => true,
+                  child: SingleChildScrollView(
+                    controller: _headerHorizontalController,
+                    scrollDirection: Axis.horizontal,
+                    physics: const ClampingScrollPhysics(),
+                    child: _buildGridHeaderRow(cols),
+                  ),
+                ),
 
-                        // 2. SCROLLABLE ROWS BODY (Vertical scroll with scrollbar)
-                        Expanded(
-                          child: Scrollbar(
-                            controller: _verticalController,
-                            thumbVisibility: true,
-                            child: SingleChildScrollView(
-                              controller: _verticalController,
-                              scrollDirection: Axis.vertical,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  for (int i = 0; i < totalRowCount; i++)
-                                    _buildGridRow(
-                                      displayIndex: i,
-                                      rows: rows,
-                                      cols: cols,
-                                    ),
-                                ],
-                              ),
-                            ),
+                // 2. SCROLLABLE ROWS BODY (Vertical & Horizontal Scroll)
+                Expanded(
+                  child: Scrollbar(
+                    controller: _verticalController,
+                    thumbVisibility: true,
+                    child: Scrollbar(
+                      controller: _horizontalController,
+                      thumbVisibility: true,
+                      notificationPredicate: (notif) => notif.depth == 1,
+                      child: SingleChildScrollView(
+                        controller: _verticalController,
+                        scrollDirection: Axis.vertical,
+                        child: SingleChildScrollView(
+                          controller: _horizontalController,
+                          scrollDirection: Axis.horizontal,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              for (int i = 0; i < totalRowCount; i++)
+                                _buildGridRow(
+                                  displayIndex: i,
+                                  rows: rows,
+                                  cols: cols,
+                                ),
+                            ],
                           ),
                         ),
-
-                        // 3. EXCEL CALCULATION / SUMMARY ROW (Pinned at bottom!)
-                        _buildExcelCalculationsRow(cols, rows),
-                      ],
+                      ),
                     ),
                   ),
                 ),
-              );
-            },
+
+                // 3. EXCEL CALCULATION / SUMMARY ROW (Pinned at bottom!)
+                NotificationListener<ScrollNotification>(
+                  onNotification: (notif) => true,
+                  child: SingleChildScrollView(
+                    controller: _footerHorizontalController,
+                    scrollDirection: Axis.horizontal,
+                    physics: const ClampingScrollPhysics(),
+                    child: _buildExcelCalculationsRow(cols, rows),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],
